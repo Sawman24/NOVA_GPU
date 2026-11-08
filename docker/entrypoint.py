@@ -36,6 +36,8 @@ def main() -> None:
 
     if env("OLLAMA_URL"):
         g["ollama_url"] = env("OLLAMA_URL")
+    if env("SEARXNG_URL"):
+        g["searxng_url"] = env("SEARXNG_URL")
     for role, var in (("brain", "BRAIN_MODEL"), ("reflex", "REFLEX_MODEL"), ("embed", "EMBED_MODEL")):
         if env(var):
             g.setdefault("roles", {})[role] = env(var)

@@ -6,6 +6,7 @@ gateway:
   port: 8800
   data_dir: /data
   ollama_url: http://ollama:11434
+  searxng_url: http://searxng:8080   # private web search; NOVA's Core searches through the Gateway
   auto_pull: true               # download missing models on start
   request_timeout: 300
   roles:

@@ -15,6 +15,7 @@ Endpoints (all need `Authorization: Bearer <token>` except /health):
   PATCH  /sessions/{id}                {title?, status?, summary?, checkpoint?}
   DELETE /sessions/{id}                delete a conversation (memories learned from it stay)
   POST   /sessions/{id}/messages       {role, content, meta?}
+  GET    /search?q=&n=                 web search via the box's SearXNG -> {results: [{title, url, snippet}]}
   POST   /stt                          raw audio body (wav/webm/ogg...) -> {text, language, duration}
                                         ?identify=1 also returns speaker: {person, score, confidence}
   GET    /voice/people                 voice recognition status + who has a voice print
@@ -102,6 +103,7 @@ def create_app(cfg: dict[str, Any]) -> Starlette:
         info["memories"] = store.count_memories()
         info["stt"] = stt.status()
         info["voice_id"] = voiceid.status()
+        info["search"] = bool(searx_url)
         return JSONResponse(info)
 
     # ------------------------------------------------------------ models
@@ -286,6 +288,27 @@ def create_app(cfg: dict[str, Any]) -> Starlette:
             log.warning("voice enrol failed: %s", e)
             return _err(f"voice enrol failed: {e}", 500)
 
+    searx_url = str(gcfg.get("searxng_url") or "").rstrip("/")
+
+    async def web_search(request: Request):
+        """Search the web through this box's private SearXNG (Google, Bing, DuckDuckGo... combined).
+        GET ?q=...&n=8 -> {results: [{title, url, snippet, engines}]}. 501 if no SearXNG is configured."""
+        if not searx_url:
+            return _err("no search engine on this Gateway (gateway.searxng_url)", 501)
+        q = (request.query_params.get("q") or "").strip()
+        n = max(1, min(20, int(request.query_params.get("n", 8) or 8)))
+        if not q:
+            return _err("q required")
+        try:
+            r = await client.get(f"{searx_url}/search", params={"q": q, "format": "json", "safesearch": 0}, timeout=25)
+            r.raise_for_status()
+            data = r.json()
+        except (httpx.HTTPError, ValueError) as e:
+            return _err(f"search engine error: {e}", 502)
+        res = [{"title": x.get("title", ""), "url": x.get("url", ""), "snippet": x.get("content", ""),
+                "engines": x.get("engines", [])} for x in data.get("results", []) if x.get("url")][:n]
+        return JSONResponse({"results": res, "unresponsive": [e[0] for e in data.get("unresponsive_engines", [])][:6]})
+
     # ------------------------------------------------------------ cloud
     async def escalate(request: Request):
         body = await _json(request)
@@ -343,6 +366,7 @@ def create_app(cfg: dict[str, Any]) -> Starlette:
         Route("/sessions/{sid}", session_item, methods=["GET", "PATCH", "DELETE"]),
         Route("/sessions/{sid}/messages", session_messages, methods=["POST"]),
         Route("/stt", speech_to_text, methods=["POST"]),
+        Route("/search", web_search),
         Route("/voice/people", voice_people),
         Route("/voice/people/{person}", voice_people, methods=["POST", "DELETE"]),
         Route("/escalate", escalate, methods=["POST"]),

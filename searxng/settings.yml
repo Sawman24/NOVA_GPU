@@ -1,0 +1,16 @@
+# Private SearXNG for NOVA: only the Gateway uses it (not published to the network).
+use_default_settings: true
+general:
+  instance_name: "NOVA search"
+server:
+  secret_key: "01577d02d78e1e910698f1aae9dacc0aeb7e608485970da9"     # internal only; SEARXNG_SECRET overrides it
+  limiter: false               # no bot limiter: NOVA is the only client
+  public_instance: false
+  image_proxy: false
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats: [html, json]        # NOVA asks for JSON
+outgoing:
+  request_timeout: 4.0
+  max_request_timeout: 8.0

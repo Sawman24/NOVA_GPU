@@ -25,6 +25,16 @@ services:
               count: all
               capabilities: [gpu]
 
+  searxng:                                     # private web search (Google, Bing, DuckDuckGo... combined)
+    build: ./searxng
+    image: nova-searxng:latest
+    container_name: nova-searxng
+    restart: unless-stopped
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+    # Not published: only the Gateway uses it. To try it in a browser, uncomment:
+    # ports: ["8888:8080"]
+
   gateway:
     build:
       context: .
@@ -33,12 +43,13 @@ services:
     image: nova-gateway:latest
     container_name: nova-gateway
     restart: unless-stopped
-    depends_on: [ollama]
+    depends_on: [ollama, searxng]
     ports:
       - "${NOVA_PORT:-8800}:8800"
     environment:
       NOVA_TOKEN: ${NOVA_TOKEN:-}              # must equal core.gateway_token on the Core PC
       OLLAMA_URL: http://ollama:11434
+      SEARXNG_URL: http://searxng:8080
       BRAIN_MODEL: ${BRAIN_MODEL:-bonsai-2:27b}
       REFLEX_MODEL: ${REFLEX_MODEL:-bonsai-2:4b}
       EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}

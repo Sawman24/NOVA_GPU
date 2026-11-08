@@ -6,7 +6,8 @@ NOVA's Core (the agent, web page, voice, tools) runs on another PC and talks to 
 
 ```
  Core PC ──(http :8800, token)──▶  nova-gateway  ──▶  nova-ollama (GPU)
-                                   memory · chats · Whisper · voice prints · cloud
+                                   memory · chats ·  ──▶  nova-searxng (web search)
+                                   Whisper · voice prints · cloud
 ```
 
 > This repo is generated from the main NOVA folder by `publish_gpu.bat`. Edit the code there, not here.
@@ -56,5 +57,5 @@ cloud keys, model choices) is used, and Portainer's environment variables still 
 Data lives in Docker volumes `nova_nova-data` (`/data`) and `nova_ollama-models`. To keep them in plain
 folders instead, set `NOVA_DATA=/opt/nova/data` and `OLLAMA_DIR=/opt/nova/ollama`.
 
-Ollama isn't exposed to the network; only the Gateway (port 8800, token required) is.
+Ollama and SearXNG aren't exposed to the network; only the Gateway (port 8800, token required) is.
 Never commit `.env`, tokens or API keys to this repo.
