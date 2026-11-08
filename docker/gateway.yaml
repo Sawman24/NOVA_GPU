@@ -1,0 +1,37 @@
+# Defaults for the Gateway in Docker. Settings from Portainer's environment variables override these
+# (see docker/entrypoint.py). For anything else, put a nova.yaml in the data volume: its "gateway:"
+# section is merged on top (secrets can live there instead of in Portainer).
+gateway:
+  host: 0.0.0.0
+  port: 8800
+  data_dir: /data
+  ollama_url: http://ollama:11434
+  auto_pull: true               # download missing models on start
+  request_timeout: 300
+  roles:
+    brain: bonsai-2:27b
+    reflex: bonsai-2:4b
+    embed: nomic-embed-text
+  embed_query_prefix: "search_query: "
+  embed_doc_prefix: "search_document: "
+  context:
+    brain: 24576
+    reflex: 8192
+  model_options:
+    brain: {temperature: 0.7}
+    reflex: {temperature: 0}
+  stt:
+    model: small.en
+    device: auto                # GPU if it works, else CPU
+    language: en
+  voice_id:
+    enabled: true
+    sure: 0.45
+    maybe: 0.30
+    learn: 0.55
+  cloud:
+    default_order: [anthropic, gemini, grok]
+    privacy: {enabled: true, redact_terms: []}
+    anthropic: {api_key_env: ANTHROPIC_API_KEY, max_calls_per_day: 50}
+    gemini: {api_key_env: GEMINI_API_KEY, model: auto, max_calls_per_day: 50}
+    grok: {api_key_env: XAI_API_KEY, model: "", max_calls_per_day: 50}
