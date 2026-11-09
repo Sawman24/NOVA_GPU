@@ -15,6 +15,7 @@ Endpoints (all need `Authorization: Bearer <token>` except /health):
   PATCH  /sessions/{id}                {title?, status?, summary?, checkpoint?}
   DELETE /sessions/{id}                delete a conversation (memories learned from it stay)
   POST   /sessions/{id}/messages       {role, content, meta?}
+  GET    /gpu                          GPU temperature, power, load (for NOVA's heat limits)
   GET    /search?q=&n=                 web search via the box's SearXNG -> {results: [{title, url, snippet}]}
   POST   /stt                          raw audio body (wav/webm/ogg...) -> {text, language, duration}
                                         ?identify=1 also returns speaker: {person, score, confidence}
@@ -290,6 +291,12 @@ def create_app(cfg: dict[str, Any]) -> Starlette:
 
     searx_url = str(gcfg.get("searxng_url") or "").rstrip("/")
 
+    async def gpu(request: Request):
+        """Quick GPU reading (temperature, power, load) without asking Ollama anything."""
+        from .llm import gpu_info
+        gpus = await asyncio.to_thread(gpu_info)
+        return JSONResponse({"gpus": gpus, "max_temp_c": max((g["temp_c"] or 0 for g in gpus), default=None) if gpus else None})
+
     async def web_search(request: Request):
         """Search the web through this box's private SearXNG (Google, Bing, DuckDuckGo... combined).
         GET ?q=...&n=8 -> {results: [{title, url, snippet, engines}]}. 501 if no SearXNG is configured."""
@@ -367,6 +374,7 @@ def create_app(cfg: dict[str, Any]) -> Starlette:
         Route("/sessions/{sid}/messages", session_messages, methods=["POST"]),
         Route("/stt", speech_to_text, methods=["POST"]),
         Route("/search", web_search),
+        Route("/gpu", gpu),
         Route("/voice/people", voice_people),
         Route("/voice/people/{person}", voice_people, methods=["POST", "DELETE"]),
         Route("/escalate", escalate, methods=["POST"]),

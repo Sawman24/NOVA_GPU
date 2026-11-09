@@ -52,6 +52,7 @@ cloud keys, model choices) is used, and Portainer's environment variables still 
 | Pull a model by hand | `docker exec -it nova-ollama ollama pull <model>` |
 | Change models | stack env `BRAIN_MODEL` / `REFLEX_MODEL` → Update the stack |
 | Second V100 | set `OLLAMA_SCHED_SPREAD=1`, update the stack |
+| Temperature | `watch -n2 nvidia-smi` |
 | Update NOVA | run `publish_gpu.bat` on the PC, then Portainer → stack → *Pull and redeploy* (or GitOps does it) |
 
 Data lives in Docker volumes `nova_nova-data` (`/data`) and `nova_ollama-models`. To keep them in plain

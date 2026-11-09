@@ -136,20 +136,34 @@ class LocalLLM:
     async def chat(self, body: dict[str, Any]) -> dict[str, Any]:
         body = self.prepare_chat(body)
         body["stream"] = False
-        r = await self.client.post(f"{self.base}/v1/chat/completions", json=body)
+        for attempt in range(2):
+            r = await self.client.post(f"{self.base}/v1/chat/completions", json=body)
+            if attempt == 0 and r.status_code >= 500 and _runner_crashed(r.text):
+                log.warning("Ollama's model runner crashed; retrying once")
+                await asyncio.sleep(3)
+                continue
+            r.raise_for_status()
+            return r.json()
         r.raise_for_status()
         return r.json()
 
     async def chat_stream(self, body: dict[str, Any]) -> AsyncIterator[bytes]:
-        """Relay the engine's server-sent events unchanged."""
+        """Relay the engine's server-sent events unchanged. If Ollama's model runner crashed before
+        answering (it happens under memory pressure), it's restarted by the next request: retry once."""
         body = self.prepare_chat(body)
         body["stream"] = True
-        async with self.client.stream("POST", f"{self.base}/v1/chat/completions", json=body) as r:
-            if r.status_code >= 400:
-                detail = (await r.aread()).decode("utf-8", "replace")[:500]
-                raise httpx.HTTPStatusError(f"engine error {r.status_code}: {detail}", request=r.request, response=r)
-            async for chunk in r.aiter_raw():
-                yield chunk
+        for attempt in range(2):
+            async with self.client.stream("POST", f"{self.base}/v1/chat/completions", json=body) as r:
+                if r.status_code >= 400:
+                    detail = (await r.aread()).decode("utf-8", "replace")[:500]
+                    if attempt == 0 and r.status_code >= 500 and _runner_crashed(detail):
+                        log.warning("Ollama's model runner crashed (%s); retrying once", detail[:120])
+                        await asyncio.sleep(3)
+                        continue
+                    raise httpx.HTTPStatusError(f"engine error {r.status_code}: {detail}", request=r.request, response=r)
+                async for chunk in r.aiter_raw():
+                    yield chunk
+                return
 
     async def embed(self, texts: list[str], model: str | None = None, purpose: str = "") -> list[list[float]]:
         """purpose: 'query' or 'document' adds the embedder's prefix (nomic-embed-text wants them)."""
@@ -205,6 +219,11 @@ class LocalLLM:
         return out
 
 
+def _runner_crashed(detail: str) -> bool:
+    d = detail.lower()
+    return "runner has unexpectedly stopped" in d or "runner process has terminated" in d or "connection refused" in d
+
+
 def gpu_info() -> list[dict[str, Any]]:
     """GPUs on this machine (nvidia-smi), or [] if it isn't available."""
     import shutil
@@ -213,7 +232,7 @@ def gpu_info() -> list[dict[str, Any]]:
     if not exe:
         return []
     try:
-        out = subprocess.run([exe, "--query-gpu=name,memory.used,memory.total,temperature.gpu,utilization.gpu",
+        out = subprocess.run([exe, "--query-gpu=name,memory.used,memory.total,temperature.gpu,utilization.gpu,power.draw,power.limit",
                               "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=5).stdout
     except Exception:  # noqa: BLE001
         return []
@@ -228,5 +247,7 @@ def gpu_info() -> list[dict[str, Any]]:
                     return None
             gpus.append({"name": parts[0], "used_mb": num(parts[1]), "total_mb": num(parts[2]),
                          "temp_c": num(parts[3]) if len(parts) > 3 else None,
-                         "util_percent": num(parts[4]) if len(parts) > 4 else None})
+                         "util_percent": num(parts[4]) if len(parts) > 4 else None,
+                         "power_w": num(parts[5]) if len(parts) > 5 else None,
+                         "power_limit_w": num(parts[6]) if len(parts) > 6 else None})
     return gpus
