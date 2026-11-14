@@ -96,6 +96,15 @@ class Store:
         self.db.commit()
         self._cache: dict[str, Any] | None = None  # vector index cache
 
+    def snapshot(self, dest: str) -> None:
+        """A consistent copy of the whole database (memory, chats, voices) while it stays in use."""
+        with self._lock:
+            out = sqlite3.connect(dest)
+            try:
+                self.db.backup(out)
+            finally:
+                out.close()
+
     def _migrate(self) -> None:
         """People: who a memory/chat belongs to. '' = the household's owner (everything made before people existed).
         scope: 'private' (that person, plus the admin) or 'shared' (everyone NOVA knows, not guests)."""

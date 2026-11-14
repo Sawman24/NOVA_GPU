@@ -31,6 +31,7 @@ import contextlib
 import hmac
 import json
 import logging
+import os
 from typing import Any
 
 import httpx
@@ -297,6 +298,29 @@ def create_app(cfg: dict[str, Any]) -> Starlette:
         gpus = await asyncio.to_thread(gpu_info)
         return JSONResponse({"gpus": gpus, "max_temp_c": max((g["temp_c"] or 0 for g in gpus), default=None) if gpus else None})
 
+    async def backup(request: Request):
+        """GET -> a copy of NOVA's memory database (SQLite file), so Core can keep backups on another machine."""
+        import tempfile
+        from starlette.background import BackgroundTask
+        from starlette.responses import FileResponse
+        fd, tmp = tempfile.mkstemp(suffix=".db", dir=str(data_dir))
+        os.close(fd)
+        try:
+            await asyncio.to_thread(store.snapshot, tmp)
+        except Exception as e:  # noqa: BLE001
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            return _err(f"backup failed: {e}", 500)
+        return FileResponse(tmp, media_type="application/octet-stream", filename="nova-memory.db",
+                            background=BackgroundTask(lambda: os.path.exists(tmp) and os.unlink(tmp)))
+
+    async def vision(request: Request):
+        """GET ?model=brain -> {model, vision: true|false|null}: can this role's model look at images?"""
+        try:
+            return JSONResponse(await llm.can_see(request.query_params.get("model") or "brain"))
+        except httpx.HTTPError as e:
+            return _err(f"engine error: {e}", 502)
+
     async def web_search(request: Request):
         """Search the web through this box's private SearXNG (Google, Bing, DuckDuckGo... combined).
         GET ?q=...&n=8 -> {results: [{title, url, snippet, engines}]}. 501 if no SearXNG is configured."""
@@ -375,6 +399,8 @@ def create_app(cfg: dict[str, Any]) -> Starlette:
         Route("/stt", speech_to_text, methods=["POST"]),
         Route("/search", web_search),
         Route("/gpu", gpu),
+        Route("/vision", vision),
+        Route("/backup", backup),
         Route("/voice/people", voice_people),
         Route("/voice/people/{person}", voice_people, methods=["POST", "DELETE"]),
         Route("/escalate", escalate, methods=["POST"]),

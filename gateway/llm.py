@@ -133,6 +133,15 @@ class LocalLLM:
             body["max_tokens"] = self.contexts[role] if self.max_output < 0 else self.max_output
         return body
 
+    async def can_see(self, role: str = "brain") -> dict[str, Any]:
+        """Does the model behind this role accept images? Ollama lists 'vision' in its capabilities."""
+        base = self.roles.get(role, role)
+        r = await self.client.post(f"{self.base}/api/show", json={"model": base}, timeout=15)
+        r.raise_for_status()
+        caps = r.json().get("capabilities")
+        # Older Ollama versions don't report capabilities: unknown (None), let the caller try.
+        return {"model": base, "vision": ("vision" in caps) if isinstance(caps, list) else None, "capabilities": caps}
+
     async def chat(self, body: dict[str, Any]) -> dict[str, Any]:
         body = self.prepare_chat(body)
         body["stream"] = False
@@ -221,7 +230,9 @@ class LocalLLM:
 
 def _runner_crashed(detail: str) -> bool:
     d = detail.lower()
-    return "runner has unexpectedly stopped" in d or "runner process has terminated" in d or "connection refused" in d
+    signs = ("runner has unexpectedly stopped", "runner process has terminated", "connection refused",
+             "unexpected eof", "connection reset", "broken pipe", "error was encountered while running the model")
+    return any(s in d for s in signs)
 
 
 def gpu_info() -> list[dict[str, Any]]:
