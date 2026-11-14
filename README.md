@@ -51,6 +51,7 @@ cloud keys, model choices) is used, and Portainer's environment variables still 
 | Health | `curl http://<box>:8800/health` |
 | Pull a model by hand | `docker exec -it nova-ollama ollama pull <model>` |
 | Change models | stack env `BRAIN_MODEL` / `REFLEX_MODEL` → Update the stack |
+| Small model on the GPU | it's unloaded after `REFLEX_UNLOAD_AFTER` seconds idle (default 30; `0` keeps it loaded) |
 | Second V100 | set `OLLAMA_SCHED_SPREAD=1`, update the stack |
 | Temperature | `watch -n2 nvidia-smi` |
 | Update NOVA | run `publish_gpu.bat` on the PC, then Portainer → stack → *Pull and redeploy* (or GitOps does it) |

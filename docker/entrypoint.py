@@ -44,6 +44,8 @@ def main() -> None:
     for role, var in (("brain", "BRAIN_CONTEXT"), ("reflex", "REFLEX_CONTEXT")):
         if env(var).isdigit():
             g.setdefault("context", {})[role] = int(env(var))
+    if env("REFLEX_UNLOAD_AFTER").isdigit():  # seconds idle before the small model leaves the GPU; 0 = keep it loaded
+        g.setdefault("unload_after", {})["reflex"] = int(env("REFLEX_UNLOAD_AFTER"))
     if env("WHISPER_MODEL"):
         g.setdefault("stt", {})["model"] = env("WHISPER_MODEL")
     if env("WHISPER_DEVICE"):

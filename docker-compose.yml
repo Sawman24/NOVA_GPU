@@ -55,6 +55,7 @@ services:
       EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
       BRAIN_CONTEXT: ${BRAIN_CONTEXT:-24576}
       REFLEX_CONTEXT: ${REFLEX_CONTEXT:-8192}
+      REFLEX_UNLOAD_AFTER: ${REFLEX_UNLOAD_AFTER:-30}   # seconds idle before the small model leaves the GPU (0 = keep loaded)
       WHISPER_MODEL: ${WHISPER_MODEL:-small.en}
       WHISPER_DEVICE: ${WHISPER_DEVICE:-auto}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}

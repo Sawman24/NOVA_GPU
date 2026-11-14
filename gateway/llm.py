@@ -29,6 +29,12 @@ class LocalLLM:
         self.variants: dict[str, str] = {}  # role -> Ollama model created with the bigger context
         # Some models ship with a small output cap (num_predict). -1 = no cap beyond the context window.
         self.max_output = int(cfg.get("max_output_tokens", -1))
+        # Take a role's model off the GPU once it has been idle this many seconds (0 / missing = keep it loaded).
+        # The small reflex model otherwise sits in VRAM next to the Brain all day; it reloads in a few seconds.
+        self.unload_after: dict[str, float] = {k: float(v) for k, v in (cfg.get("unload_after") or {"reflex": 30}).items() if v}
+        self._busy: dict[str, int] = {}      # role -> requests running now
+        self._last_use: dict[str, float] = {}
+        self._unloaders: dict[str, asyncio.Task] = {}
 
     def model_for(self, name: str | None) -> str:
         name = name or "brain"
@@ -142,7 +148,47 @@ class LocalLLM:
         # Older Ollama versions don't report capabilities: unknown (None), let the caller try.
         return {"model": base, "vision": ("vision" in caps) if isinstance(caps, list) else None, "capabilities": caps}
 
+    # ------------------------------------------------------------------ freeing VRAM
+    def _begin(self, role: str) -> None:
+        if role in self.unload_after:
+            self._busy[role] = self._busy.get(role, 0) + 1
+
+    def _end(self, role: str) -> None:
+        if role not in self.unload_after:
+            return
+        self._busy[role] = max(0, self._busy.get(role, 0) - 1)
+        self._last_use[role] = asyncio.get_running_loop().time()
+        t = self._unloaders.get(role)
+        if t is None or t.done():
+            self._unloaders[role] = asyncio.create_task(self._unload_when_idle(role))
+
+    async def _unload_when_idle(self, role: str) -> None:
+        wait = self.unload_after[role]
+        loop = asyncio.get_running_loop()
+        while True:
+            idle = loop.time() - self._last_use.get(role, 0)
+            if self._busy.get(role, 0) == 0 and idle >= wait:
+                break
+            await asyncio.sleep(max(0.5, wait - idle) if self._busy.get(role, 0) == 0 else 1.0)
+        model = self.model_for(role)
+        if any(self.model_for(r) == model for r in self.roles if r != role and r not in self.unload_after):
+            return  # another role that stays loaded uses the same model
+        try:  # an empty request with keep_alive 0 is Ollama's "unload this model now"
+            r = await self.client.post(f"{self.base}/api/generate", json={"model": model, "keep_alive": 0}, timeout=30)
+            r.raise_for_status()
+            log.info("Unloaded %s (%s role idle for %ds): VRAM freed", model, role, wait)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Couldn't unload %s: %s", model, e)
+
     async def chat(self, body: dict[str, Any]) -> dict[str, Any]:
+        role = body.get("model") or "brain"
+        self._begin(role)
+        try:
+            return await self._chat(body)
+        finally:
+            self._end(role)
+
+    async def _chat(self, body: dict[str, Any]) -> dict[str, Any]:
         body = self.prepare_chat(body)
         body["stream"] = False
         for attempt in range(2):
@@ -159,6 +205,15 @@ class LocalLLM:
     async def chat_stream(self, body: dict[str, Any]) -> AsyncIterator[bytes]:
         """Relay the engine's server-sent events unchanged. If Ollama's model runner crashed before
         answering (it happens under memory pressure), it's restarted by the next request: retry once."""
+        role = body.get("model") or "brain"
+        self._begin(role)
+        try:
+            async for chunk in self._chat_stream(body):
+                yield chunk
+        finally:
+            self._end(role)
+
+    async def _chat_stream(self, body: dict[str, Any]) -> AsyncIterator[bytes]:
         body = self.prepare_chat(body)
         body["stream"] = True
         for attempt in range(2):
